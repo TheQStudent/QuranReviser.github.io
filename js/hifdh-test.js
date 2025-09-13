@@ -13,20 +13,20 @@ const els = {
   mode: document.getElementById('mode'),
   xWrapper: document.getElementById('x-wrapper'),
   fontWrapper: document.getElementById('font-wrapper'),
+  metaWrapper: document.getElementById('meta-wrapper'),
   xCount: document.getElementById('x-count'),
   fontPx: document.getElementById('font-px'),
+  recShowMeta: document.getElementById('rec-show-meta'),
   tajweed: document.getElementById('tajweed'),
   seed: document.getElementById('seed'),
   start: document.getElementById('start'),
   // Recite mode
   reciteSection: document.getElementById('recite-section'),
   recPrompt: document.getElementById('recite-prompt'),
-  recStart: document.getElementById('rec-start'),
-  recStop: document.getElementById('rec-stop'),
+  recMeta: document.getElementById('recite-meta'),
+  recBtn: document.getElementById('rec-btn'),
   recAudio: document.getElementById('rec-audio'),
-  recShow: document.getElementById('rec-show-answer'),
   recAnswer: document.getElementById('rec-answer'),
-  recNext: document.getElementById('rec-next'),
   // MCQ mode
   mcqSection: document.getElementById('mcq-section'),
   mcqPrompt: document.getElementById('mcq-prompt'),
@@ -48,7 +48,10 @@ const state = {
   versesFlat: [], // list of {verse_key, text_uthmani, page_number}
   orderCorrect: [],
   orderUser: [],
+  recShowMeta: false,
 };
+
+const recState = { mediaRec: null, chunks: [], recording: false, bound: false };
 
 function applyFontSize(px){
   const n = Math.max(18, Math.min(60, parseInt(px,10)||36));
@@ -168,11 +171,9 @@ function shuffle(arr){
 }
 
 // Mode 1: Recite next X
-function runRecite(){
-  setVisible(els.reciteSection);
+function prepareRecite(){
   const list = state.versesFlat;
-  if (!list.length) { els.recPrompt.textContent = 'No verses in scope.'; return; }
-  // Pick a start that has X following verses within the list
+  if (!list.length) { els.recPrompt.textContent = 'No verses in scope.'; els.recAnswer.textContent=''; return; }
   const X = Math.max(1, Math.min(20, parseInt(els.xCount.value,10)||3));
   let idx = -1;
   for (let tries=0; tries<50; tries++){
@@ -185,26 +186,60 @@ function runRecite(){
   els.recPrompt.textContent = start.text_uthmani || '—';
   els.recAnswer.classList.add('hidden');
   els.recAnswer.innerHTML = follow.map(v=>v.text_uthmani).join('<br>');
-  // Recording controls
-  let mediaRec = null; let chunks = [];
-  els.recAudio.classList.add('hidden'); els.recAudio.removeAttribute('src');
-  els.recStart.disabled = false; els.recStop.disabled = true;
-  els.recStart.onclick = async ()=>{
+  if (state.recShowMeta && els.recMeta){
+    const [sid, vid] = verseKeyToTuple(start.verse_key);
+    let name = 'Surah ' + sid;
+    if (Array.isArray(window.CHAPTERS_DATA)){
+      const ch = window.CHAPTERS_DATA.find(c=>c.id===sid);
+      if (ch) name = ch.name_simple;
+    }
+    els.recMeta.textContent = `${name} ${sid}:${vid}`;
+    els.recMeta.classList.remove('hidden');
+  } else if (els.recMeta){
+    els.recMeta.classList.add('hidden');
+  }
+  els.recAudio.classList.add('hidden');
+  els.recAudio.removeAttribute('src');
+  els.recBtn.textContent = 'Record';
+}
+
+async function toggleRec(){
+  if (recState.recording){
+    try { recState.mediaRec && recState.mediaRec.stop(); } catch {}
+    recState.recording = false;
+    els.recBtn.textContent = 'Record';
+    els.recAnswer.classList.remove('hidden');
+  } else {
+    if (!els.recAnswer.classList.contains('hidden')) {
+      prepareRecite();
+    }
+    try { els.recAudio.pause(); els.recAudio.currentTime = 0; } catch {}
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      mediaRec = new MediaRecorder(stream);
-      chunks = [];
-      mediaRec.ondataavailable = e => { if (e.data && e.data.size>0) chunks.push(e.data); };
-      mediaRec.onstop = () => {
-        try { const blob = new Blob(chunks, { type: 'audio/webm' }); const url = URL.createObjectURL(blob); els.recAudio.src = url; els.recAudio.classList.remove('hidden'); } catch {}
+      recState.mediaRec = new MediaRecorder(stream);
+      recState.chunks = [];
+      recState.mediaRec.ondataavailable = e => { if (e.data && e.data.size>0) recState.chunks.push(e.data); };
+      recState.mediaRec.onstop = () => {
+        try {
+          const blob = new Blob(recState.chunks, { type: 'audio/webm' });
+          const url = URL.createObjectURL(blob);
+          els.recAudio.src = url;
+          els.recAudio.classList.remove('hidden');
+          els.recAudio.play();
+        } catch {}
       };
-      mediaRec.start();
-      els.recStart.disabled = true; els.recStop.disabled = false;
+      recState.mediaRec.start();
+      recState.recording = true;
+      els.recBtn.textContent = 'Stop';
+      els.recAnswer.classList.add('hidden');
     } catch(e){ alert('Microphone not available.'); }
-  };
-  els.recStop.onclick = ()=>{ try { mediaRec && mediaRec.stop(); } catch {}; els.recStart.disabled = false; els.recStop.disabled = true; };
-  els.recShow.onclick = ()=>{ els.recAnswer.classList.remove('hidden'); };
-  els.recNext.onclick = ()=> runRecite();
+  }
+}
+
+function runRecite(){
+  setVisible(els.reciteSection);
+  if (!recState.bound && els.recBtn){ els.recBtn.addEventListener('click', toggleRec); recState.bound = true; }
+  prepareRecite();
 }
 
 // Mode 2: MCQ Next Verse
@@ -230,9 +265,25 @@ function runMcq(){
     const btn = document.createElement('button');
     btn.className = 'btn secondary';
     btn.textContent = opt.text_uthmani || '—';
+    if (opt === correct) btn.dataset.correct = '1';
     btn.addEventListener('click', () => {
-      if (opt === correct) { btn.classList.remove('secondary'); btn.classList.add('primary'); btn.textContent = '✓ ' + btn.textContent; }
-      else { btn.classList.add('danger'); btn.textContent = '✗ ' + btn.textContent; }
+      const buttons = Array.from(els.mcqChoices.querySelectorAll('button'));
+      buttons.forEach(b => b.disabled = true);
+      if (opt === correct) {
+        btn.classList.remove('secondary');
+        btn.classList.add('primary');
+        btn.textContent = '✓ ' + btn.textContent;
+        buttons.forEach(b => { if (b !== btn) { b.classList.add('danger'); b.textContent = '✗ ' + b.textContent; } });
+      } else {
+        btn.classList.add('danger');
+        btn.textContent = '✗ ' + btn.textContent;
+        const correctBtn = buttons.find(b => b.dataset.correct === '1');
+        if (correctBtn) {
+          correctBtn.classList.remove('secondary');
+          correctBtn.classList.add('primary');
+          correctBtn.textContent = '✓ ' + correctBtn.textContent;
+        }
+      }
     }, { once: true });
     els.mcqChoices.appendChild(btn);
   });
@@ -300,6 +351,7 @@ function checkOrder(){
 async function startTest(){
   ensureFont();
   state.rng = seededRng((els.seed && els.seed.value)||'');
+  state.recShowMeta = els.recShowMeta ? !!els.recShowMeta.checked : false;
   const verses = await buildScopeVerses();
   state.versesFlat = verses;
   // Hide setup once test starts
@@ -320,6 +372,7 @@ els.scopeKind.addEventListener('change', ()=>{
 els.mode.addEventListener('change', ()=>{
   const v = els.mode.value;
   els.xWrapper.hidden = (v !== 'recite');
+  if (els.metaWrapper) els.metaWrapper.hidden = (v !== 'recite');
   if (els.fontWrapper) els.fontWrapper.hidden = (v === 'order');
   if (els.fontPx) els.fontPx.disabled = (v === 'order');
   ensureFont();
@@ -333,5 +386,6 @@ if (els.orderNext) els.orderNext.addEventListener('click', ()=> runOrder());
 try { const prefs = JSON.parse(localStorage.getItem(PREFS_KEY)||'{}'); if (typeof prefs.font_px==='number') els.fontPx.value = prefs.font_px; } catch {}
 ensureFont();
 els.xWrapper.hidden = (els.mode.value !== 'recite');
+if (els.metaWrapper) els.metaWrapper.hidden = (els.mode.value !== 'recite');
 if (els.fontWrapper) els.fontWrapper.hidden = (els.mode.value === 'order');
 if (els.fontPx) els.fontPx.disabled = (els.mode.value === 'order');

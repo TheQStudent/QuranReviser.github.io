@@ -18,7 +18,7 @@
     .options { display:flex; gap:10px; flex-wrap:wrap; }
     .question { direction: rtl; font-family: 'Amiri Quran', serif; font-size: var(--arabic-size, 34px); line-height:2.1; padding: 12px; }
     .choices { display:grid; grid-template-columns: 1fr; gap: 10px; }
-    .choices button { text-align:right; }
+    .choices button { text-align:right; direction: rtl; font-family: 'Amiri Quran', serif; font-size: var(--arabic-size, 34px); line-height:2.1; }
     .muted { color: var(--muted); font-size: 12px; }
     .draggable-list { list-style: none; padding: 0; margin: 0; }
     .draggable-list li { background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; margin: 8px 0; cursor: move; direction: rtl; font-family: 'Amiri Quran', serif; font-size: var(--arabic-size, 30px); }
@@ -80,6 +80,9 @@
           <label class="muted">Arabic font size</label>
           <input id="font-px" type="number" min="18" max="60" value="36">
         </div>
+        <div class="field" id="meta-wrapper">
+          <label class="muted"><input type="checkbox" id="rec-show-meta" checked> Show verse info</label>
+        </div>
         <div class="field">
           <label class="muted">Tajweed coloring</label>
           <select id="tajweed">
@@ -99,15 +102,11 @@
 
     <section class="panel" id="recite-section" hidden>
       <div class="muted">Prompt</div>
+      <div id="recite-meta" class="muted hidden"></div>
       <div id="recite-prompt" class="question">—</div>
       <div class="row">
-        <button id="rec-start" class="btn secondary">Record</button>
-        <button id="rec-stop" class="btn secondary" disabled>Stop</button>
+        <button id="rec-btn" class="btn secondary">Record</button>
         <audio id="rec-audio" controls class="hidden"></audio>
-      </div>
-      <div class="row">
-        <button id="rec-show-answer" class="btn primary">Show Answer</button>
-        <button id="rec-next" class="btn secondary">Next</button>
       </div>
       <div id="rec-answer" class="question hidden"></div>
     </section>
@@ -134,6 +133,8 @@
 
   <audio id="audio" preload="none" class="hidden"></audio>
 
+  <script src="../js/init-theme.js"></script>
+  <script src="../js/chapters-data.js"></script>
   <script src="../js/hifdh-test.js"></script>
 </body>
 </html>
